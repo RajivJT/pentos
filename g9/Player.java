@@ -10,6 +10,7 @@ import java.util.*;
 public class Player implements pentos.sim.Player {
 
     private Set<Cell> road_cells;
+    private Random gen = new Random();
 
     public void init() {
         road_cells = new HashSet<Cell>();
@@ -62,6 +63,15 @@ public class Player implements pentos.sim.Player {
             if (roadCells != null) {
                 road_cells.addAll(roadCells);
                 chosen.road = roadCells;
+
+                if (request.type == Building.Type.RESIDENCE) {
+                    Set<Cell> markedForConstruction = new HashSet<Cell>();
+                    markedForConstruction.addAll(roadCells);
+                    chosen.water = randomWalk(shiftedCells, markedForConstruction, land, 4);
+                    markedForConstruction.addAll(chosen.water);
+                    chosen.park = randomWalk(shiftedCells, markedForConstruction, land, 4);
+                }
+
                 return chosen;
             }
         }
@@ -155,5 +165,44 @@ public class Player implements pentos.sim.Player {
             return null;
         else
             return output;
+    }
+
+    private Set<Cell> randomWalk(Set<Cell> b, Set<Cell> marked, Land land, int n) {
+        ArrayList<Cell> adjCells = new ArrayList<Cell>();
+        Set<Cell> output = new HashSet<Cell>();
+        for (Cell p : b) {
+            for (Cell q : p.neighbors()) {
+                if (land.isField(q) || land.isPond(q)) {
+                    return new HashSet<Cell>();
+                }
+
+                if (!b.contains(q) && !marked.contains(q) && land.unoccupied(q)) {
+                    adjCells.add(q);
+                }
+            }
+        }
+
+        if (adjCells.isEmpty()) {
+            return new HashSet<Cell>();
+        }
+
+        Cell tail = adjCells.get(gen.nextInt(adjCells.size()));
+        for (int ii=0; ii<n; ii++) {
+            ArrayList<Cell> walk_cells = new ArrayList<Cell>();
+            for (Cell p : tail.neighbors()) {
+                if (!b.contains(p) && !marked.contains(p) && land.unoccupied(p) &&
+                    !output.contains(p)) {
+                    walk_cells.add(p);
+                }
+            }
+
+            if (walk_cells.isEmpty()) {
+                return new HashSet<Cell>();
+            }
+
+            output.add(tail);	    
+            tail = walk_cells.get(gen.nextInt(walk_cells.size()));
+        }
+        return output;
     }
 }
