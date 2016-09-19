@@ -128,8 +128,7 @@ public class Player implements pentos.sim.Player {
         // add cells adjacent to current road cells
         for (Cell p : road_cells) {
             for (Cell q : p.neighbors()) {
-                if (!road_cells.contains(q) && land.unoccupied(q) && !b.contains(q) &&
-                    isPerimeter(land, q)) {
+                if (!road_cells.contains(q) && land.unoccupied(q) && !b.contains(q)) {
                     queue.add(new Cell(q.i,q.j,p));
                 }
             }
@@ -151,8 +150,7 @@ public class Player implements pentos.sim.Player {
                     if (!output.isEmpty()) {
                         return output;
                     }
-                } else if (!checked[x.i][x.j] && land.unoccupied(x.i,x.j) &&
-                           isPerimeter(land, x)) {
+                } else if (!checked[x.i][x.j] && land.unoccupied(x.i,x.j)) {
                     x.previous = p;
                     queue.add(x);
                 } 
