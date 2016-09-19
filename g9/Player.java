@@ -15,45 +15,15 @@ public class Player implements pentos.sim.Player {
     public void init() {
         road_cells = new HashSet<Cell>();
     }
-    
-    public Move play(Building request, Land land) {
-        ArrayList <Move> moves = new ArrayList <Move> ();
 
-        if (request.type == Building.Type.RESIDENCE) {
-            for (int i = 0 ; i < land.side ; i++) {
-                for (int j = 0 ; j < land.side ; j++) {
-                    Cell p = new Cell(i, j);
-                    Building[] rotations = request.rotations();
-                    for (int ri = 0 ; ri < rotations.length ; ri++) {
-                        Building b = rotations[ri];
-                        if (land.buildable(b, p)) {
-                            moves.add(new Move(true, request, p, ri, new HashSet<Cell>(),
-                                      new HashSet<Cell>(), new HashSet<Cell>()));
-                        }
-                    }
-                }
-            }
-        } else {
-            for (int i = land.side - 1 ; i >= 0; i--) {
-                for (int j = land.side - 1 ; j >= 0; j--) {
-                    Cell p = new Cell(i, j);
-                    Building[] rotations = request.rotations();
-                    for (int ri = 0 ; ri < rotations.length ; ri++) {
-                        Building b = rotations[ri];
-                        if (land.buildable(b, p)) {
-                            moves.add(new Move(true, request, p, ri, new HashSet<Cell>(),
-                                      new HashSet<Cell>(), new HashSet<Cell>()));
-                        }
-                    }
-                }
-            }
-        }
+    public Move getMoveIfValid(Building request, Land land, int i, int j, int ri) {
+        Cell p = new Cell(i, j);
+        Building b = request.rotations()[ri];
 
-        if (moves.isEmpty()) {
-            return new Move(false);
-        }
+        if (land.buildable(b, p)) {
+            Move chosen = new Move(true, request, p, ri, new HashSet<Cell>(),
+                                   new HashSet<Cell>(), new HashSet<Cell>());
 
-        for (Move chosen : moves) {
             Set<Cell> shiftedCells = new HashSet<Cell>();
             for (Cell x : chosen.request.rotations()[chosen.rotation])
                 shiftedCells.add(new Cell(x.i+chosen.location.i,x.j+chosen.location.j));
@@ -76,9 +46,37 @@ public class Player implements pentos.sim.Player {
             }
         }
 
-        return new Move(false);
+        return null;
     }
 
+    public Move play(Building request, Land land) {
+        if (request.type == Building.Type.RESIDENCE) {
+            for (int i = 0 ; i < land.side ; i++) {
+                for (int j = 0 ; j < land.side ; j++) {
+                    for (int ri = 0 ; ri < request.rotations().length ; ri++) {
+                        Move chosen = getMoveIfValid(request, land, i, j, ri);
+                        if (chosen != null) {
+                            return chosen;
+                        }
+                    }
+                }
+            }
+        } else if (request.type == Building.Type.FACTORY) {
+            for (int i = land.side - 1 ; i >= 0; i--) {
+                for (int j = land.side - 1 ; j >= 0; j--) {
+                    for (int ri = 0 ; ri < request.rotations().length ; ri++) {
+                        Move chosen = getMoveIfValid(request, land, i, j, ri);
+                        if (chosen != null) {
+                            return chosen;
+                        }
+                    }
+                }
+            }
+        }
+
+        return new Move(false);
+    }
+    
     private boolean isPerimeter(Land land, Cell cell) {
         int i = cell.i;
         int j = cell.j;
