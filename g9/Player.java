@@ -381,19 +381,27 @@ public class Player implements pentos.sim.Player {
                     Cell roadCell = new Cell(roadI, roadJ);
                     if (land.unoccupied(roadCell)) {
                         roadCells.add(roadCell);
+                    } else {
+                        // if the horizontal road is broken, don't try to build road
+                        roadCells = new HashSet<Cell>();
+                        break;
                     }
                 }
-                resAreaCount += 2;
-                for (int currResArea = 0; currResArea < resAreaCount; currResArea++) {
-                    for (int j = 0; j < land.side; j++) {
-                        evaluateMovesAt(currResArea, j, request, land, roadCells, potentialMoves);
+                if (roadCells.size() > 0) {
+                    resAreaCount += 2;
+                    for (int currResArea = 0; currResArea < resAreaCount; currResArea++) {
+                        for (int j = 0; j < land.side; j++) {
+                            evaluateMovesAt(currResArea, j, request, land, roadCells, potentialMoves);
+                        }
                     }
                 }
-            }
+            } // end if no moves found, make new res area
 
             Move bestMove = null;
             Map.Entry<Move, Integer> maxScore = null;
             for (Map.Entry<Move, Integer> entry : potentialMoves.entrySet()) {
+                if (entry == null)
+                    break;
                 if (maxScore == null || entry.getValue() > maxScore.getValue()) {
                     maxScore = entry;
                     bestMove = entry.getKey();
@@ -402,6 +410,16 @@ public class Player implements pentos.sim.Player {
 
 
             if (bestMove == null) {
+                for (int i = 0 ; i < land.side ; i++) {
+                    for (int j = 0 ; j < land.side ; j++) {
+                        for (int ri = 0 ; ri < request.rotations().length ; ri++) {
+                            Move chosen = getMoveIfValid(request, land, i, j, ri);
+                            if (chosen != null) {
+                                return chosen;
+                            }
+                        }
+                    }
+                }
                 return new Move(false);
             } else {
                 bestMove.road = roadCells;
