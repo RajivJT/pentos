@@ -18,6 +18,26 @@ public class Player implements pentos.sim.Player {
     private Random gen = new Random();
     private int resAreaCount = 1;
 
+    /* (Move, score) tuple
+     */
+    class ScoredMove implements Comparable<ScoredMove> {
+        public Move move;
+        public int score;
+
+        public ScoredMove(Move move, int score) {
+            this.move = move;
+            this.score = score;
+        }
+
+        public boolean equals(ScoredMove m) {
+            return move == m.move && score == m.score;
+        }
+
+        public int compareTo(ScoredMove m) {
+            return score - m.score;
+        }
+    }
+
     public void init() {
         road_cells = new HashSet<Cell>();
     }
@@ -90,6 +110,8 @@ public class Player implements pentos.sim.Player {
         return emptyNeighbors.size() * PACKING_FACTOR_MULTIPLE;
     }
 
+    /* Checks if building to be placed is adjacent to a pond
+     */
     public boolean adjacentPond(Building b, Cell position, Land land) {
         Set<Cell> adjacentPoints = new HashSet<Cell>();
         for (Cell c : b) {
@@ -108,6 +130,8 @@ public class Player implements pentos.sim.Player {
         return false;
     }
 
+    /* Checks if building to be placed is adjacent to a field
+     */
     public boolean adjacentField(Building b, Cell position, Land land) {
         Set<Cell> adjacentPoints = new HashSet<Cell>();
         for (Cell c : b) {
@@ -149,11 +173,15 @@ public class Player implements pentos.sim.Player {
         return Math.hypot(a.i - b.i, a.j - b.j);
     }
 
-    /* returns a pond that is as packed as possible to the building about to be built
+    /* *** CURRENTLY UNUSED ***
+       returns a pond/field that is as packed as possible to the building about to be built
        if not possible, returns empty set
-       TODO: use recursive search to generate ponds. right now only builds to the right
+       Should build the pond/field on side of building AWAY from the road
+       TODO: try recursively building ponds/fields
+       TODO: see if there are existing ponds/fields nearby and link to them
      */
-    public Set<Cell> buildPackedPondField(Building b, Cell buildingPos, Land land) {
+    public Move buildPackedPondField(Building b, Cell buildingPos, int resArea,
+                                     Land land, boolean hasPond, boolean hasField) {
         // calculate building's center of mass **UNUSED
         int sumI = 0;
         int sumJ = 0;
@@ -191,7 +219,12 @@ public class Player implements pentos.sim.Player {
         Collections.sort(sortedBuildingCells, new Comparator<Cell>() {
                 @Override
                 public int compare(final Cell c1, final Cell c2) {
-                    return c1.i - c2.i;
+                    if ((resArea % 2) == 0) {
+                        return c1.i - c2.i;
+                    } else {
+                        return -(c1.i - c2.i);
+                    }
+
                 }
             });
 
@@ -207,7 +240,7 @@ public class Player implements pentos.sim.Player {
         }
         
         if (!willBeUnoccupied(curr, b, buildingPos, land)) {
-            return newPond;
+            return new Move(false);
         } else {
             newPond.add(curr);
             pondHeight++;
@@ -236,7 +269,7 @@ public class Player implements pentos.sim.Player {
                     curr = down;
                     pondHeight++;
                 } else {
-                    return newPond;
+                    return new Move(false);
                 }
             } else {
                 if (willBeUnoccupied(right, b, buildingPos, land)) {
@@ -251,15 +284,19 @@ public class Player implements pentos.sim.Player {
                     curr = down;
                     pondHeight++;
                 } else {
-                    return newPond;
+                    return new Move(false);
                 } 
 
             }
         }
 
-        return newPond;
+        return new Move(false);
     }
 
+    /* Checks if building to be placed will be connected to a road
+       (either already on the board or a part of the roads cells passed in
+       as an argument) or not
+     */
     public boolean hasRoadConnection(Building b, Cell buildingPosition, Land land, Set<Cell> roadCells) {
         Set<Cell> absBuildingCells = new HashSet<Cell>();
         
@@ -281,10 +318,13 @@ public class Player implements pentos.sim.Player {
         }
         return false;
     }
-    
-    public void evaluateMovesAt(int currResArea, int j, Building request,
+
+    /* for a resArea, column, building, fills potentialMoves with possible 
+       moves and the "score" assigned to each
+     */
+    private void evaluateMovesAt(int currResArea, int j, Building request,
                                 Land land, Set<Cell> roadCells,
-                                HashMap<Move, Integer> potentialMoves) {
+                                Vector<ScoredMove> potentialMoves) {
         // evaluate each rotation in this build spot
         for (int r = 0; r < request.rotations().length; r++) {
             Building b = request.rotations()[r];
@@ -311,6 +351,7 @@ public class Player implements pentos.sim.Player {
                 continue;
             }
 
+            // get the row from res area number
             int i;
             if (currResArea % 2 == 0) {
                 i = (currResArea / 2) * 8;
@@ -327,8 +368,12 @@ public class Player implements pentos.sim.Player {
                 Set<Cell> fieldCells = new HashSet<Cell>();
                 boolean hasPond = false;
                 boolean hasField = false;
-                
+
+                // subtracts from the score the number of empty cells adjacent to the building
+                // so better packed positions get higher scores
                 score -= getPackingFactor(b, buildPosition, land);
+
+                // increase score if ponds or field adjacent
                 if (adjacentPond(b, buildPosition, land)) {
                     hasPond = true;
                     score += POND_BONUS_SCORE;
@@ -338,32 +383,37 @@ public class Player implements pentos.sim.Player {
                     score += FIELD_BONUS_SCORE;
                 }
 
-                // base move without adding any fields or ponds
+                // add to the potentialMoves the base move without adding any fields or ponds
                 Move potential = new Move(true, request, buildPosition, r, roadCells,
                                           new HashSet<Cell>(), new HashSet<Cell>());
-                potentialMoves.put(potential, score);
+                ScoredMove sMove = new ScoredMove(potential, score);
+                potentialMoves.add(sMove);
 
-                // now try adding ponds or fields as a potential move
-                if (hasPond == false) {
-                    pondCells = buildPackedPondField(b, buildPosition, land);
-                    potential = new Move(true, request, buildPosition, r, roadCells, pondCells, new HashSet<Cell>());
-                    potentialMoves.put(potential, score - 20);
-                } else if (hasField == false) {
-                    fieldCells = buildPackedPondField(b, buildPosition, land);
-                    potential = new Move(true, request, buildPosition, r, roadCells, new HashSet<Cell>(), fieldCells);
-                    potentialMoves.put(potential, score - 20);
-                }
+                // TODO: add to potentialMoves the move WITH adding ponds/fields
+                Move potentialPlus = buildPackedPondField(b, buildPosition, currResArea, land, hasPond, hasField);
             } // end if buildable
         } // end building rotations for loop
 
     } 
     
-    /* For residences, divide up the board into "areas". Split the board with roads
-       that are 7 cells apart, and each side of a road is an "area"
+    /* For residences, divide up the board into areas by spliting the board with roads
+       that are 7 cells apart, and each side of a road is a "res area":
+       ================ PERIMETER ================================
+       res area 0
+       
+       res area 1
+       ================ ROAD ================================
+       res area 2
+
+       res area 3
+       ================ ROAD ================================
+       res area 4
+       ...
+
      */
     public Move play(Building request, Land land) {
         int maxResAreas = land.side / 8 + 1; // 7 empty cell + 1 road = 8
-        HashMap<Move, Integer> potentialMoves = new HashMap<Move, Integer>();
+        Vector<ScoredMove> potentialMoves = new Vector<ScoredMove>();
         System.out.println("Request type: " + request.type + " " + request.toString());
         if (request.type == Building.Type.RESIDENCE) {
             HashSet<Cell> roadCells = new HashSet<Cell>();
@@ -397,19 +447,8 @@ public class Player implements pentos.sim.Player {
                 }
             } // end if no moves found, make new res area
 
-            Move bestMove = null;
-            Map.Entry<Move, Integer> maxScore = null;
-            for (Map.Entry<Move, Integer> entry : potentialMoves.entrySet()) {
-                if (entry == null)
-                    break;
-                if (maxScore == null || entry.getValue() > maxScore.getValue()) {
-                    maxScore = entry;
-                    bestMove = entry.getKey();
-                }
-            }
-
-
-            if (bestMove == null) {
+            // if could not make moves from above strategy, revert to default behavior
+            if (potentialMoves.size() == 0) {
                 for (int i = 0 ; i < land.side ; i++) {
                     for (int j = 0 ; j < land.side ; j++) {
                         for (int ri = 0 ; ri < request.rotations().length ; ri++) {
@@ -420,26 +459,17 @@ public class Player implements pentos.sim.Player {
                         }
                     }
                 }
-                return new Move(false);
+                return new Move(false); // default player failed to find a spot
             } else {
+                // get the move with highest score from Vector potentialMoves
+                Collections.sort(potentialMoves);
+                ScoredMove bestScoredMove = potentialMoves.lastElement();
+                Move bestMove = bestScoredMove.move;
                 bestMove.road = roadCells;
                 return bestMove;
             }
-            
-        }
-        
-        if (request.type == Building.Type.RESIDENCE) {
-            for (int i = 0 ; i < land.side ; i++) {
-                for (int j = 0 ; j < land.side ; j++) {
-                    for (int ri = 0 ; ri < request.rotations().length ; ri++) {
-                        Move chosen = getMoveIfValid(request, land, i, j, ri);
-                        if (chosen != null) {
-                            return chosen;
-                        }
-                    }
-                }
-            }
-        } else if (request.type == Building.Type.FACTORY) {
+        } // end if request.type == RESIDENCE
+        else if (request.type == Building.Type.FACTORY) {
             for (int i = land.side - 1 ; i >= 0; i--) {
                 for (int j = land.side - 1 ; j >= 0; j--) {
                     for (int ri = 0 ; ri < request.rotations().length ; ri++) {
@@ -453,7 +483,7 @@ public class Player implements pentos.sim.Player {
         }
 
         return new Move(false);
-    }
+    } // end play()
     
     private boolean isPerimeter(Land land, Cell cell) {
         int i = cell.i;
@@ -579,4 +609,8 @@ public class Player implements pentos.sim.Player {
         }
         return output;
     }
+
+
 }
+
+
