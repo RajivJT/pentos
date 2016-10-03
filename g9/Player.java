@@ -81,13 +81,8 @@ public class Player implements pentos.sim.Player {
      */
     public int getPackingFactor(Building b, Cell position, Land land) {
         Set<Cell> emptyNeighbors = new HashSet<Cell>();
-        Set<Cell> absBuildingCells = new HashSet<Cell>();
+        Set<Cell> absBuildingCells = getAbsCells(b, position);
         
-        for (Cell c : b) {
-            Cell abs = new Cell(c.i + position.i, c.j + position.j);
-            absBuildingCells.add(abs);
-        }
-
         for (Cell abs : absBuildingCells) {
             Cell[] absNeighbors = abs.neighbors();
             for (Cell n : absNeighbors) {
@@ -130,6 +125,8 @@ public class Player implements pentos.sim.Player {
         return false;
     }
 
+
+    
     /* Checks if building to be placed is adjacent to a field
      */
     public boolean adjacentField(Building b, Cell position, Land land) {
@@ -173,6 +170,84 @@ public class Player implements pentos.sim.Player {
         return Math.hypot(a.i - b.i, a.j - b.j);
     }
 
+    /* Searches for a cell of specified type that is up to specified distance 
+       away from building. Returns set of cells that satisfies this, or an empty 
+       set if none found
+     */
+    private Set<Cell> connectTo(Building b, Cell buildingPos, Land land,
+                                Set<Cell> markedForConstruction, Cell.Type type, int maxDistance) {
+        // only works for parks and fields
+        if (type != Cell.Type.WATER && type != Cell.Type.PARK) {
+            return new HashSet<Cell>();
+        }
+
+        Set<Cell> absBuildingCells = getAbsCells(b, buildingPos);
+        Queue<Cell> queue = new LinkedList<Cell>();
+        
+        for (Cell c : absBuildingCells) {
+            Cell[] neighbors = c.neighbors();
+            for (Cell n : neighbors) {
+                if (land.unoccupied(n) && !markedForConstruction.contains(n)) {
+                    queue.add(n);
+                }
+            }
+        }
+
+        int distance = maxDistance;
+        int currIterSize = queue.size(); // keep track of how many cells in current search depth
+        Set<Cell> connectingCells = new HashSet<Cell>();
+        Set<Cell> visited = new HashSet<Cell>();
+
+        while (queue.size() > 0) {
+            if (currIterSize == 0) {
+                // if done with current search depth, get size of next search depth and increase
+                // search depth counter
+                currIterSize = queue.size();
+                distance--;
+                if (distance <= 0) {
+                    break;
+                }
+            }
+
+            Cell curr = queue.remove();
+            visited.add(curr);
+            Cell[] neighbors = curr.neighbors();
+            Cell found = null;
+            for (Cell c : neighbors) {
+                if (type == Cell.Type.WATER && land.isPond(c)) {
+                    System.out.println("FOUND nearby pond");
+                    found = curr;
+                    break;
+                }
+
+                if (type == Cell.Type.PARK && land.isField(c)) {
+                    System.out.println("FOUND nearby field");
+                    found = curr;
+                    break;
+                }
+
+                if ( land.unoccupied(c) && !absBuildingCells.contains(c)
+                     && !markedForConstruction.contains(c) && !visited.contains(c) ) {
+                    Cell next = new Cell(c.i, c.j, curr);
+                    queue.add(next);
+                }
+            }
+
+            if (found != null) {
+                while (found != null) {
+                    connectingCells.add(found);
+                    found = found.previous;
+                }
+                break;
+            }
+            currIterSize--;
+        } // end while queue.size() > 0
+        if (connectingCells.size() > 0) {
+            System.out.println("connecting cells size: " + connectingCells.size());
+        }
+        return connectingCells;
+    } // end connectTo()
+    
     /* *** CURRENTLY UNUSED ***
        returns a pond/field that is as packed as possible to the building about to be built
        if not possible, returns empty set
@@ -293,17 +368,22 @@ public class Player implements pentos.sim.Player {
         return new Move(false);
     }
 
+
+    private Set<Cell> getAbsCells(Building b, Cell buildingPos) {
+        Set<Cell> absBuildingCells = new HashSet<Cell>();
+        for (Cell c : b) {
+            Cell abs = new Cell(c.i + buildingPos.i, c.j + buildingPos.j);
+            absBuildingCells.add(abs);
+        }
+        return absBuildingCells;
+    }
+    
     /* Checks if building to be placed will be connected to a road
        (either already on the board or a part of the roads cells passed in
        as an argument) or not
      */
     public boolean hasRoadConnection(Building b, Cell buildingPosition, Land land, Set<Cell> roadCells) {
-        Set<Cell> absBuildingCells = new HashSet<Cell>();
-        
-        for (Cell c : b) {
-            Cell abs = new Cell(c.i + buildingPosition.i, c.j + buildingPosition.j);
-            absBuildingCells.add(abs);
-        }
+        Set<Cell> absBuildingCells = getAbsCells(b, buildingPosition);
 
         for (Cell abs : absBuildingCells) {
             Cell[] absNeighbors = abs.neighbors();
@@ -389,8 +469,75 @@ public class Player implements pentos.sim.Player {
                 ScoredMove sMove = new ScoredMove(potential, score);
                 potentialMoves.add(sMove);
 
-                // TODO: add to potentialMoves the move WITH adding ponds/fields
-                Move potentialPlus = buildPackedPondField(b, buildPosition, currResArea, land, hasPond, hasField);
+                Set<Cell> markedForConstruction = new HashSet<Cell>();
+                markedForConstruction.addAll(roadCells);
+                Set<Cell> shiftedCells = new HashSet<Cell>();
+                // make sure random walk starts from middle of res area
+                if ((currResArea % 2) == 0) {
+                    int maxI = 0;
+                    for (Cell p : b) {
+                        if (p.i > maxI) {
+                            maxI = p.i;
+                        }
+                    }
+                    for (Cell p : b) {
+                        if (p.i == maxI) {
+                            shiftedCells.add(new Cell(p.i + buildPosition.i, p.j + buildPosition.j));
+                        }
+                    }
+                }
+                else {
+                    int minI = land.side + 1;
+                    for (Cell p : b) {
+                        if (p.i < minI) {
+                            minI = p.i;
+                        }
+                    }
+                    for (Cell p : b) {
+                        if (p.i == minI) {
+                            shiftedCells.add(new Cell(p.i + buildPosition.i, p.j + buildPosition.j));
+                        }
+                    }
+                }
+
+                for (Cell c : b) {
+                    markedForConstruction.add(new Cell(c.i + buildPosition.i, c.j + buildPosition.j));
+                } 
+                
+                int scorePlus = score;
+                if (!hasPond) {
+                    Set<Cell> newPond = connectTo(b, buildPosition, land, markedForConstruction, Cell.Type.WATER, 3);
+                    if (newPond.size() > 0) {
+                        scorePlus += (20 / newPond.size());
+                    }
+                    else {
+                        newPond = randomWalk(shiftedCells, markedForConstruction, land, 4);
+                        if (newPond.size() > 0) {
+                            scorePlus += 5;
+                        }
+                    }
+                    markedForConstruction.addAll(newPond);
+                    potential.water = newPond;
+                }
+
+                if (!hasField) {
+                    Set<Cell> newField = connectTo(b, buildPosition, land, markedForConstruction, Cell.Type.PARK, 3);
+                    if (newField.size() > 0) {
+                        scorePlus += (20 / newField.size());
+                    }
+                    else {
+                        newField = randomWalk(shiftedCells, markedForConstruction, land, 4);
+                        if (newField.size() > 0) {
+                            scorePlus += 5;
+                        }
+                    }
+                    markedForConstruction.addAll(newField);
+                    potential.park = newField;
+                }
+
+                ScoredMove sMovePlus = new ScoredMove(potential, scorePlus);
+                potentialMoves.add(sMovePlus);
+
             } // end if buildable
         } // end building rotations for loop
 
