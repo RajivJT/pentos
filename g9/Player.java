@@ -399,8 +399,31 @@ public class Player implements pentos.sim.Player {
         return false;
     }
 
+    /* TODO
+     */
+    private Set<Cell> buildRoad(Set<Cell> building, Land land) {
+        return null;
+    }
+        
+    /* TODO: fill out
+     */
+    private Move buildParksPonds(Move move, Land land) {
+        return null;
+    }
+
+    /* TODO: how many cells get cut off from network?
+     */
+    
+    /* TODO: score differently for factories vs residences
+     */
+    private int scoreMove(Move move) {
+        return 0;
+    }
+    
     /* for a resArea, column, building, fills potentialMoves with possible 
        moves and the "score" assigned to each
+       TODO:
+       int i, int j, Building request, Land land, Vector<ScoredMOve> potentialMoves
      */
     private void evaluateMovesAt(int currResArea, int j, Building request,
                                 Land land, Set<Cell> roadCells,
@@ -409,7 +432,7 @@ public class Player implements pentos.sim.Player {
         for (int r = 0; r < request.rotations().length; r++) {
             Building b = request.rotations()[r];
 
-            // ignore rotations that are greater than width 3
+            // ignore rotations that are greater than width 3 TODO: remove this criteria
             int maxWidth = 0;
             for (Cell p : b) {
                 if (p.j > maxWidth) {
@@ -420,7 +443,7 @@ public class Player implements pentos.sim.Player {
                 continue;
             }
             
-            // ignore rotations that are less than height 3
+            // ignore rotations that are less than height 3 TODO: remove this criteria
             int maxHeight = 0;
             for (Cell p : b) {
                 if (p.i > maxHeight) {
@@ -431,7 +454,7 @@ public class Player implements pentos.sim.Player {
                 continue;
             }
 
-            // get the row from res area number
+            // get the row from res area number TODO: remove this
             int i;
             if (currResArea % 2 == 0) {
                 i = (currResArea / 2) * 8;
@@ -439,6 +462,10 @@ public class Player implements pentos.sim.Player {
                 i = ((currResArea + 1) / 2) * 8 - 2 - (maxHeight);
             }
             Cell buildPosition = new Cell(i, j);
+
+            //TODO: call build road algo and call scoring algo
+
+            //TODO: build parks/ponds and call scoring
             
             // generate score for this rotation and add to potential moves
             if (land.buildable(b, buildPosition)
@@ -471,7 +498,7 @@ public class Player implements pentos.sim.Player {
 
                 Set<Cell> markedForConstruction = new HashSet<Cell>();
                 markedForConstruction.addAll(roadCells);
-                Set<Cell> shiftedCells = new HashSet<Cell>();
+                Set<Cell> startCells = new HashSet<Cell>();
                 // make sure random walk starts from middle of res area
                 if ((currResArea % 2) == 0) {
                     int maxI = 0;
@@ -482,7 +509,7 @@ public class Player implements pentos.sim.Player {
                     }
                     for (Cell p : b) {
                         if (p.i == maxI) {
-                            shiftedCells.add(new Cell(p.i + buildPosition.i, p.j + buildPosition.j));
+                            startCells.add(new Cell(p.i + buildPosition.i, p.j + buildPosition.j));
                         }
                     }
                 }
@@ -495,7 +522,7 @@ public class Player implements pentos.sim.Player {
                     }
                     for (Cell p : b) {
                         if (p.i == minI) {
-                            shiftedCells.add(new Cell(p.i + buildPosition.i, p.j + buildPosition.j));
+                            startCells.add(new Cell(p.i + buildPosition.i, p.j + buildPosition.j));
                         }
                     }
                 }
@@ -511,13 +538,15 @@ public class Player implements pentos.sim.Player {
                         scorePlus += (20 / newPond.size());
                     }
                     else {
-                        newPond = randomWalk(shiftedCells, markedForConstruction, land, 4);
+                        newPond = randomWalk(startCells, markedForConstruction, land, 4);
                         if (newPond.size() > 0) {
                             scorePlus += 5;
                         }
                     }
-                    markedForConstruction.addAll(newPond);
-                    potential.water = newPond;
+                    if (newPond.size() > 0) {
+                        markedForConstruction.addAll(newPond);
+                        potential.water = newPond;
+                    }
                 }
 
                 if (!hasField) {
@@ -526,13 +555,16 @@ public class Player implements pentos.sim.Player {
                         scorePlus += (20 / newField.size());
                     }
                     else {
-                        newField = randomWalk(shiftedCells, markedForConstruction, land, 4);
+                        newField = randomWalk(startCells, markedForConstruction, land, 4);
                         if (newField.size() > 0) {
                             scorePlus += 5;
                         }
                     }
-                    markedForConstruction.addAll(newField);
-                    potential.park = newField;
+
+                    if (newField.size() > 0) {
+                        markedForConstruction.addAll(newField);
+                        potential.park = newField;
+                    }
                 }
 
                 ScoredMove sMovePlus = new ScoredMove(potential, scorePlus);
@@ -567,6 +599,8 @@ public class Player implements pentos.sim.Player {
             
             for (int currResArea = 0; currResArea < resAreaCount; currResArea++) {
                 for (int j = 0; j < land.side; j++) {
+
+                    // TODO: loop through every position
                     evaluateMovesAt(currResArea, j, request, land, roadCells, potentialMoves);
                 }
             }
