@@ -9,12 +9,15 @@ public class Sequencer implements pentos.sim.Sequencer {
     private Random gen;
     private final double ratio = 0.7; // ratio of residences to total number of buildings
 
-    public void init() {
-	gen = new Random();
+    public void init(Long seed) {
+	if (seed != null) 
+	    gen = new Random(seed.longValue());
+	else
+	    gen = new Random();
     }
     
     public Building next() {
-	if (gen.nextDouble() > 0.7)
+	if (gen.nextDouble() > ratio)
 	    return randomFactory();
 	else
 	    return randomResidence();

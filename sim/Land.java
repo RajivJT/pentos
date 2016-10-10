@@ -29,6 +29,8 @@ public class Land {
     }
 
     // check if a cell belongs to a pond or field respectively
+    public Cell.Type getCellType(Cell q) {return getCellType(q.i,q.j);}
+    public Cell.Type getCellType(int i, int j) {return land[i][j].type;}	
     public boolean isPond(Cell q) {return isPond(q.i,q.j);}
     public boolean isField(Cell q) {return isField(q.i,q.j);}
     public boolean isPond(int i, int j) {return isGroup( i,j, Cell.Type.WATER);}

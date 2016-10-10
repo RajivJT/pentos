@@ -17,7 +17,8 @@ class Simulator {
     public static void main(String[] args) throws Exception
     {
 	boolean gui = false;
-	boolean gui_manual_refresh_on_cutter = false;
+	Long seed = null;
+	boolean gui_manual_refresh_on_cutter = false;	
 	String group = "g0";
 	Class <Player> g_class = null;
 	Class <Sequencer> s_class = null;
@@ -38,14 +39,19 @@ class Simulator {
 			throw new IllegalArgumentException("Missing sequencer name");
 		    sequencer = args[++a];
 		}
+		else if (args[a].equals("-i") || args[a].equals("--seed")) {
+		    if (++a >= args.length)
+			throw new IllegalArgumentException("Missing seed");
+		    seed = new Long(Long.parseLong(args[a]));
+		}
 		else if (args[a].equals("--fps")) {
-		    if (++a == args.length)
+		    if (++a >= args.length)
 			throw new IllegalArgumentException("Missing GUI FPS");
 		    double gui_fps = Double.parseDouble(args[a]);
 		    gui_refresh = gui_fps > 0.0 ? (long) Math.round(1000.0 / gui_fps) : -1;
 		    gui = true;
 		} else if (args[a].equals("--tournament")) {
-		    if (++a == args.length)
+		    if (++a >= args.length)
 			throw new IllegalArgumentException("Missing tournament file");
 		    tournament_path = args[a];
 		} else if (args[a].equals("--gui")) gui = true;
@@ -80,7 +86,7 @@ class Simulator {
 	boolean timeout = false;
 	try {
 	    timeout = play(group, g_class, sequencer, s_class,
-			   gui, gui_manual_refresh_on_cutter,
+			   gui, seed, gui_manual_refresh_on_cutter,
 			   gui_refresh, cpu_time_ms, score);
 	} catch (Exception e) {
 	    if (tournament_path != null) throw e;
@@ -106,6 +112,7 @@ class Simulator {
 			    String sequencer,
 			    Class <Sequencer> s_class,
 			    boolean gui,
+			    Long seed,
 			    boolean gui_manual_refresh_on_cutter,
 			    long gui_refresh,
 			    long cpu_time_ms,
@@ -167,7 +174,7 @@ class Simulator {
 	player.init();
 	if (log)
 	    System.err.println("Initializing sequencer...");
-	generator.init();
+	generator.init(seed);
 	if (log)
 	    System.err.println("Construction begins ...");
 	do {
@@ -360,7 +367,8 @@ class Simulator {
 	    if (!compiler.getTask(null, manager, null, null, null,
 				  manager.getJavaFileObjectsFromFiles(player_files)).call())
 		throw new IOException("Compilation failed");
-	    System.err.println("done!");
+	    if (log)
+		System.err.println("done!");
 	    class_file = new File(root + sep + group + sep + "Player.class");
 	    if (!class_file.exists())
 		throw new FileNotFoundException("Missing class file");

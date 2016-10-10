@@ -10,7 +10,7 @@ public class Building implements Iterable <Cell> {
     private Set <Cell> cells;
 
     // hash code of cells (this rotation)
-    private int hash;
+    public final int hash;
 
     // circular list of rotations
     private Building rotate;

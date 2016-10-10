@@ -9,15 +9,18 @@ import java.util.*;
 
 public class Player implements pentos.sim.Player {
 
-    private int BASE_RESIDENCE_SCORE = 50; // base score for a residence
+    private int BASE_BUILDING_SCORE = 10; // base score for a single cell of a building
     private int PACKING_FACTOR_MULTIPLE = 10; // score multiple for each adjacent cell
     private int POND_BONUS_SCORE = 20; // score to add for a pond
     private int FIELD_BONUS_SCORE = 20; // score to add for a field
-    private int BLOCK_SIZE = 8; // spacing between roads
-    
+    private int BUILD_ROAD_PENALTY = 5; // penalty for each additional road cell built
+    private int BUILD_PARK_PENALTY = 4; // penalty for each additional water/park built
+    private int ROAD_ADJ_PENALTY = 5; // penalty for each adjacent road cell
+    private int MIN_POTENTIAL_MOVES = 4; // min # of potential moves in vector before considering looking on the next row
+    private int BLOCK_SIZE = 7;
     private Set<Cell> road_cells;
     private Random gen = new Random();
-    private int resAreaCount = 1;
+    
 
     /* (Move, score) tuple
      */
@@ -55,7 +58,7 @@ public class Player implements pentos.sim.Player {
             for (Cell x : chosen.request.rotations()[chosen.rotation])
                 shiftedCells.add(new Cell(x.i+chosen.location.i,x.j+chosen.location.j));
 
-            Set<Cell> roadCells = findShortestRoad(shiftedCells, land);
+            Set<Cell> roadCells = findShortestRoadG1(shiftedCells, land);
 
             if (roadCells != null) {
                 road_cells.addAll(roadCells);
@@ -77,17 +80,13 @@ public class Player implements pentos.sim.Player {
     }
 
 
-    /*
-      Returns number of adjacent empty cells (how well packed the building is)
+    /* Returns number of adjacent empty cells (how well packed the building is)
+       RESIDENCES: takes into account road, water, park cells about to be built
      */
-    public int getPackingFactor(Building b, Cell position, Land land) {
+    private int getPackingFactor(Building b, Cell position, Land land,
+                                Set<Cell> markedForConstruction) {
         Set<Cell> emptyNeighbors = new HashSet<Cell>();
-        Set<Cell> absBuildingCells = new HashSet<Cell>();
-        
-        for (Cell c : b) {
-            Cell abs = new Cell(c.i + position.i, c.j + position.j);
-            absBuildingCells.add(abs);
-        }
+        Set<Cell> absBuildingCells = getAbsCells(b, position);
 
         for (Cell abs : absBuildingCells) {
             Cell[] absNeighbors = abs.neighbors();
@@ -102,18 +101,24 @@ public class Player implements pentos.sim.Player {
                             occupied = true;
                         }
                     }
+                    
                     if (occupied == false) {
-                        emptyNeighbors.add(n);
+                        // last check: if n is NOT one of the road/water/park to be constructed
+                        if (!markedForConstruction.contains(n)) {
+                            emptyNeighbors.add(n);
+                        }
                     }
-                }
-            }
-        }
+                } // end if land.unoccupied(n)
+            } // end for(Cell n : absNeighbors)
+        } // end for(Cell abs : absBuildingCells)
         return emptyNeighbors.size() * PACKING_FACTOR_MULTIPLE;
     }
 
-    /* Checks if building to be placed is adjacent to a pond
+    /* Checks if building to be placed is adjacent to a pond (existing or 
+       under construction)
      */
-    public boolean adjacentPond(Building b, Cell position, Land land) {
+    public boolean adjacentPond(Building b, Cell position, Land land,
+                                Set<Cell> water) {
         Set<Cell> adjacentPoints = new HashSet<Cell>();
         for (Cell c : b) {
             Cell abs = new Cell(c.i + position.i, c.j + position.j);
@@ -127,13 +132,19 @@ public class Player implements pentos.sim.Player {
             if (land.isPond(p)) {
                 return true;
             }
+            for (Cell w : water) {
+                if (w.equals(p)) {
+                    return true;
+                }
+            }
         }
         return false;
     }
 
     /* Checks if building to be placed is adjacent to a field
      */
-    public boolean adjacentField(Building b, Cell position, Land land) {
+    public boolean adjacentField(Building b, Cell position, Land land,
+                                 Set<Cell> park) {
         Set<Cell> adjacentPoints = new HashSet<Cell>();
         for (Cell c : b) {
             Cell abs = new Cell(c.i + position.i, c.j + position.j);
@@ -147,10 +158,44 @@ public class Player implements pentos.sim.Player {
             if (land.isField(p)) {
                 return true;
             }
+            for (Cell f : park) {
+                if (f.equals(p)) {
+                    return true;
+                }
+            }
         }
         return false;
     }
 
+    /* Counts how many adjacent road cells
+     */
+    public int numAdjRoad(Building b, Cell position, Land land,
+                              Set<Cell> road) {
+        Set<Cell> adjRoadCells = new HashSet<Cell>();
+        Set<Cell> adjacentPoints = new HashSet<Cell>();
+        for (Cell c : b) {
+            Cell abs = new Cell(c.i + position.i, c.j + position.j);
+            Cell[] adj = abs.neighbors();
+            for (Cell a : adj) {
+                adjacentPoints.add(a);
+            }
+        }
+
+        for (Cell p : adjacentPoints) {
+            if (p.i < 0 || p.j < 0 || p.i >= land.side || p.j >= land.side) {
+                adjRoadCells.add(p);
+            }
+            else if (road_cells.contains(p)) {
+                adjRoadCells.add(p);
+            }
+            else if (road.contains(p)) {
+                adjRoadCells.add(p);
+            }
+        }
+        return adjRoadCells.size();
+    }
+
+    
     /*
       Checks if cell is occupied currently or will be by the building about to be placed
       c is an ABSOLUTE POSITION on the land
@@ -308,6 +353,15 @@ public class Player implements pentos.sim.Player {
         return false;
     }
 
+    private Set<Cell> getAbsCells(Building b, Cell buildingPos) {
+        Set<Cell> absBuildingCells = new HashSet<Cell>();
+        for (Cell c : b) {
+            Cell abs = new Cell(c.i + buildingPos.i, c.j + buildingPos.j);
+            absBuildingCells.add(abs);
+        }
+        return absBuildingCells;
+    }
+    
     /* TODO
      */
     private Set<Cell> buildRoad(Set<Cell> building, Land land) {
@@ -325,181 +379,109 @@ public class Player implements pentos.sim.Player {
     
     /* TODO: score differently for factories vs residences
      */
-    private int scoreMove(Move move) {
-        return 0;
+    private int scoreMove(Move move, Land land) {
+        int score = 0;
+        Building request = move.request;
+        Building b = request.rotations()[move.rotation];
+        Cell buildingPos = move.location;
+        Set<Cell> road = move.road;
+        Set<Cell> water = move.water;
+        Set<Cell> park = move.park;
+        Set<Cell> markedForConstruction = new HashSet<Cell>();
+        //markedForConstruction.addAll(road);
+        markedForConstruction.addAll(water);
+        markedForConstruction.addAll(park);
+        
+        score = b.size() * BASE_BUILDING_SCORE;
+        score -= getPackingFactor(b, buildingPos, land, markedForConstruction);
+
+        if (adjacentPond(b, buildingPos, land, water)) {
+            score += POND_BONUS_SCORE;
+        }
+
+        if (adjacentField(b, buildingPos, land, park)) {
+            score += FIELD_BONUS_SCORE;
+        }
+
+        score -= (water.size() + park.size()) * BUILD_PARK_PENALTY;
+        score -= road.size() * BUILD_ROAD_PENALTY;
+
+        score -= numAdjRoad(b, buildingPos, land, road) * ROAD_ADJ_PENALTY;
+        
+        return score;
     }
     
-    /* for a resArea, column, building, fills potentialMoves with possible 
-       moves and the "score" assigned to each
-       TODO:
-       int i, int j, Building request, Land land, Vector<ScoredMOve> potentialMoves
+    /* For a given location and request, checks all rotations of the building
+       in that location and assigns a score to each, adds it to the vector of
+       potential moves
      */
-    private void evaluateMovesAt(int currResArea, int j, Building request,
-                                Land land, Set<Cell> roadCells,
-                                Vector<ScoredMove> potentialMoves) {
+    private void evaluateMovesAt(int i, int j, Building request,
+                                 Land land, Vector<ScoredMove> potentialMoves) {
         // evaluate each rotation in this build spot
         for (int r = 0; r < request.rotations().length; r++) {
             Building b = request.rotations()[r];
+            Cell buildingPos = new Cell(i, j);
 
-            // ignore rotations that are greater than width 3 TODO: remove this criteria
-            int maxWidth = 0;
-            for (Cell p : b) {
-                if (p.j > maxWidth) {
-                    maxWidth = p.j;
-                }
-            }
-            if (maxWidth >= 3) {
-                continue;
-            }
+            Set<Cell> absBuildingCells = getAbsCells(b, buildingPos);
+            Set<Cell> water = new HashSet<Cell>();
+            Set<Cell> park = new HashSet<Cell>();
+            Set<Cell> road = new HashSet<Cell>();
             
-            // ignore rotations that are less than height 3 TODO: remove this criteria
-            int maxHeight = 0;
-            for (Cell p : b) {
-                if (p.i > maxHeight) {
-                    maxHeight = p.i;
-                }
-            }
-            if (maxHeight < 2) {
-                continue;
-            }
+            if (land.buildable(b, buildingPos)) {
+                // TODO: replace this with improved road building algo
+                road = findShortestRoadG1(absBuildingCells, land);
+                Move potential = new Move(true, request, buildingPos, r, road, water, park);
 
-            // get the row from res area number TODO: remove this
-            int i;
-            if (currResArea % 2 == 0) {
-                i = (currResArea / 2) * (BLOCK_SIZE + 1);
-            } else {
-                i = ((currResArea + 1) / 2) * (BLOCK_SIZE + 1) - 2 - (maxHeight);
+                int score = scoreMove(potential, land);
+                ScoredMove sMove = new ScoredMove(potential, score);
+                potentialMoves.add(sMove);
             }
-            Cell buildPosition = new Cell(i, j);
-
             //TODO: call build road algo and call scoring algo
 
             //TODO: build parks/ponds and call scoring
-            
-            // generate score for this rotation and add to potential moves
-            if (land.buildable(b, buildPosition)
-                && hasRoadConnection(b, buildPosition, land, roadCells)) {
-                int score = BASE_RESIDENCE_SCORE;
-                boolean hasPond = false;
-                boolean hasField = false;
 
-                // subtracts from the score the number of empty cells adjacent to the building
-                // so better packed positions get higher scores
-                score -= getPackingFactor(b, buildPosition, land);
-
-                // increase score if ponds or field adjacent
-                if (adjacentPond(b, buildPosition, land)) {
-                    hasPond = true;
-                    score += POND_BONUS_SCORE;
-                }
-                if (adjacentField(b, buildPosition, land)) {
-                    hasField = true;
-                    score += FIELD_BONUS_SCORE;
-                }
-
-                // add to the potentialMoves the base move without adding any fields or ponds
-                Move potential = new Move(true, request, buildPosition, r, roadCells,
-                                          new HashSet<Cell>(), new HashSet<Cell>());
-                ScoredMove sMove = new ScoredMove(potential, score);
-                potentialMoves.add(sMove);
-
-<<<<<<< HEAD
-=======
-                // TODO: The player will currently always give moves that include ponds and fields
-                // a higher score. We might want to add a heuristic that subtracts points for the
-                // space that ponds/fields occupy (in some cases, particularly in the end game, it
-                // might be better not to insert a pond or field)
-                if (!hasPond || !hasField) {
-                    Move potentialPlus = buildWithDevelopment(buildPosition, request, r, roadCells,
-                                                              land, hasPond, hasField);
-                    score += POND_BONUS_SCORE;
-                    ScoredMove sMovePlus = new ScoredMove(potentialPlus, score);
-                    potentialMoves.add(sMovePlus);
->>>>>>> 86fb901be6d8f18d75efdabfed98c32b4dc1098b
-                }
-            } // end if buildable
         } // end building rotations for loop
 
     } 
     
-    /* For residences, divide up the board into areas by spliting the board with roads
-       that are BLOCK_SIZE cells apart, and each side of a road is a "res area":
-       ================ PERIMETER ================================
-       res area 0
-       
-       res area 1
-       ================ ROAD ================================
-       res area 2
-
-       res area 3
-       ================ ROAD ================================
-       res area 4
-       ...
-
+    /* For each request, search entire board and evaluate moves at each cell
+       Add potential scored moves to a vector, and choose the best option to play
+       Revert to default player if no options found
      */
     public Move play(Building request, Land land) {
-        int maxResAreas = land.side / (BLOCK_SIZE + 1) + 1; // BLOCK_SIZE empty cell + 1 road = BLOCK_SIZE + 1
-        Vector<ScoredMove> potentialMoves = new Vector<ScoredMove>();
         System.out.println("Request type: " + request.type + " " + request.toString());
+        Vector<ScoredMove> potentialMoves = new Vector<ScoredMove>();
+        
         if (request.type == Building.Type.RESIDENCE) {
-            HashSet<Cell> roadCells = new HashSet<Cell>();
-            
-            for (int currResArea = 0; currResArea < resAreaCount; currResArea++) {
+            for (int i = 0; i < land.side; i++) {
                 for (int j = 0; j < land.side; j++) {
-
-                    // TODO: loop through every position
-                    evaluateMovesAt(currResArea, j, request, land, roadCells, potentialMoves);
+                    evaluateMovesAt(i, j, request, land, potentialMoves);  
+                }
+                System.out.println("Potential moves: " + potentialMoves.size());
+                if (potentialMoves.size() >= MIN_POTENTIAL_MOVES) {
+                    System.out.println("Sufficient moves found at i = " + i);
+                    break; // searched thru constrained space and found enough moves
                 }
             }
 
-            // if no moves found, make a new res area
-            if (potentialMoves.size() == 0) {
-                int roadI = ( (resAreaCount+1)/2 ) * (BLOCK_SIZE + 1) - 1;
-                for (int roadJ = 0; roadJ < land.side; roadJ++) {
-                    Cell roadCell = new Cell(roadI, roadJ);
-                    if (land.unoccupied(roadCell)) {
-                        roadCells.add(roadCell);
-                    } else {
-                        // if the horizontal road is broken, don't try to build road
-                        roadCells = new HashSet<Cell>();
-                        break;
-                    }
+        }
+        else {
+            for (int i = land.side-1; i >= 0; i--) {
+                for (int j = land.side-1; j >= 0; j--) {
+                    evaluateMovesAt(i, j, request, land, potentialMoves);  
                 }
-                if (roadCells.size() > 0) {
-                    resAreaCount += 2;
-                    for (int currResArea = 0; currResArea < resAreaCount; currResArea++) {
-                        for (int j = 0; j < land.side; j++) {
-                            evaluateMovesAt(currResArea, j, request, land, roadCells, potentialMoves);
-                        }
-                    }
+                System.out.println("Potential moves: " + potentialMoves.size());
+                if (potentialMoves.size() >= MIN_POTENTIAL_MOVES) {
+                    System.out.println("Sufficient moves found at i = " + i);
+                    break; // searched thru constrained space and found enough moves
                 }
-            } // end if no moves found, make new res area
-
-            // if could not make moves from above strategy, revert to default behavior
-            if (potentialMoves.size() == 0) {
-                for (int i = 0 ; i < land.side ; i++) {
-                    for (int j = 0 ; j < land.side ; j++) {
-                        for (int ri = 0 ; ri < request.rotations().length ; ri++) {
-                            Move chosen = getMoveIfValid(request, land, i, j, ri);
-                            if (chosen != null) {
-                                return chosen;
-                            }
-                        }
-                    }
-                }
-                return new Move(false); // default player failed to find a spot
-            } else {
-                // get the move with highest score from Vector potentialMoves
-                Collections.sort(potentialMoves);
-                ScoredMove bestScoredMove = potentialMoves.lastElement();
-                Move bestMove = bestScoredMove.move;
-                bestMove.road = roadCells;
-                return bestMove;
             }
-        } // end if request.type == RESIDENCE
-        else if (request.type == Building.Type.FACTORY) {
-            for (int i = land.side - 1 ; i >= 0; i--) {
-                for (int j = land.side - 1 ; j >= 0; j--) {
+        }
+
+        // if no potential moves found, try one more run with default player
+        if (potentialMoves.size() == 0) {
+            for (int i = 0 ; i < land.side ; i++) {
+                for (int j = 0 ; j < land.side ; j++) {
                     for (int ri = 0 ; ri < request.rotations().length ; ri++) {
                         Move chosen = getMoveIfValid(request, land, i, j, ri);
                         if (chosen != null) {
@@ -508,9 +490,19 @@ public class Player implements pentos.sim.Player {
                     }
                 }
             }
+            return new Move(false); // default player failed to find a spot
+        } else {
+            // get the move with highest score from Vector potentialMoves
+            Collections.sort(potentialMoves);
+            ScoredMove bestScoredMove = potentialMoves.lastElement();
+            Move bestMove = bestScoredMove.move;
+            Building b = bestMove.request.rotations()[bestMove.rotation];
+            Set<Cell> absBuildingCells = getAbsCells(b, bestMove.location);
+            road_cells.addAll(bestMove.road);
+
+            return bestMove;
         }
 
-        return new Move(false);
     } // end play()
     
     private boolean isPerimeter(Land land, Cell cell) {
@@ -599,6 +591,72 @@ public class Player implements pentos.sim.Player {
             return output;
     }
 
+
+    /* Group 1's improved findShortestRoad algorithm
+     */
+    private Set<Cell> findShortestRoadG1(Set<Cell> b, Land land) {
+	Set<Cell> output = new HashSet<Cell>();
+	boolean[][] checked = new boolean[land.side][land.side];
+	Queue<Cell> queue = new LinkedList<Cell>();
+	// add border cells that don't have a road currently
+	Cell source = new Cell(Integer.MAX_VALUE,Integer.MAX_VALUE); // dummy cell to serve as road connector to perimeter cells
+	for(Cell x : b) {
+		if(x.i==0 || x.i==land.side-1 || x.j==0 || x.j==land.side-1) return new HashSet<Cell>();
+		for(Cell y : x.neighbors()) {
+			if(road_cells.contains(y)) {
+				return new HashSet<Cell>();
+			}
+		}
+	}
+	for (int z=0; z<land.side; z++) {
+	    if (b.contains(new Cell(0,z)) || b.contains(new Cell(z,0)) || b.contains(new Cell(land.side-1,z)) || b.contains(new Cell(z,land.side-1))) //if already on border don't build any roads
+		return output;
+	    if (land.unoccupied(0,z))
+		queue.add(new Cell(0,z,source));
+	    if (land.unoccupied(z,0))
+		queue.add(new Cell(z,0,source));
+	    if (land.unoccupied(z,land.side-1))
+		queue.add(new Cell(z,land.side-1,source));
+	    if (land.unoccupied(land.side-1,z))
+		queue.add(new Cell(land.side-1,z,source));
+	}
+	// add cells adjacent to current road cells
+	
+	for (Cell p : road_cells) {
+	    for (Cell q : p.neighbors()) {
+		if (!road_cells.contains(q) && land.unoccupied(q) && !b.contains(q)) 
+		    queue.add(new Cell(q.i,q.j,p)); // use tail field of cell to keep track of previous road cell during the search
+	    }
+	}	
+	while (!queue.isEmpty()) {
+	    Cell p = queue.remove();
+	    checked[p.i][p.j] = true;
+	    for (Cell x : p.neighbors()) {		
+		if (b.contains(x)) { // trace back through search tree to find path
+		    Cell tail = p;
+		    while (!b.contains(tail) && !road_cells.contains(tail) && !tail.equals(source)) {
+			output.add(new Cell(tail.i,tail.j));
+			tail = tail.previous;
+		    }
+		    if (!output.isEmpty())
+			return output;
+		}
+		else if (!checked[x.i][x.j] && land.unoccupied(x.i,x.j)) {
+		    x.previous = p;
+		    checked[x.i][x.j] = true;
+		    queue.add(x);
+		} 
+
+	    }
+	}
+	if (output.isEmpty() && queue.isEmpty())
+	    return null;
+	else
+	    return output;
+    } // end findShortestRoadG1
+
+
+    
     private Set<Cell> randomWalk(Set<Cell> b, Set<Cell> marked, Land land, int n) {
         ArrayList<Cell> adjCells = new ArrayList<Cell>();
         Set<Cell> output = new HashSet<Cell>();
