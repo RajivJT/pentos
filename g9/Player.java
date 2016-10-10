@@ -13,7 +13,7 @@ public class Player implements pentos.sim.Player {
     private int PACKING_FACTOR_MULTIPLE = 10; // score multiple for each adjacent cell
     private int POND_BONUS_SCORE = 20; // score to add for a pond
     private int FIELD_BONUS_SCORE = 20; // score to add for a field
-    private int BUILD_ROAD_PENALTY = 5; // penalty for each additional road cell built
+    private int BUILD_ROAD_PENALTY = 50; // penalty for each additional road cell built
     private int BUILD_PARK_PENALTY = 4; // penalty for each additional water/park built
     private int ROAD_ADJ_PENALTY = 5; // penalty for each adjacent road cell
     private int MIN_POTENTIAL_MOVES = 4; // min # of potential moves in vector before considering looking on the next row
@@ -331,20 +331,16 @@ public class Player implements pentos.sim.Player {
        (either already on the board or a part of the roads cells passed in
        as an argument) or not
      */
-    public boolean hasRoadConnection(Building b, Cell buildingPosition, Land land, Set<Cell> roadCells) {
-        Set<Cell> absBuildingCells = new HashSet<Cell>();
+    public boolean hasRoadConnection(Building b, Cell buildingPosition, Land land,
+                                     Set<Cell> roadConstruction ) {
+        Set<Cell> absBuildingCells = getAbsCells(b, buildingPosition);
         
-        for (Cell c : b) {
-            Cell abs = new Cell(c.i + buildingPosition.i, c.j + buildingPosition.j);
-            absBuildingCells.add(abs);
-        }
-
         for (Cell abs : absBuildingCells) {
             Cell[] absNeighbors = abs.neighbors();
             for (Cell n : absNeighbors) {
-                if (n.isRoad())
+                if (road_cells.contains(n))
                     return true;
-                if (roadCells.contains(n))
+                if (roadConstruction.contains(n))
                     return true;
                 if (isPerimeter(land, n))
                     return true;
@@ -431,7 +427,9 @@ public class Player implements pentos.sim.Player {
                 // TODO: replace this with improved road building algo
                 road = findShortestRoadG1(absBuildingCells, land);
                 Move potential = new Move(true, request, buildingPos, r, road, water, park);
-
+                if (road == null || !hasRoadConnection(b, buildingPos, land, road)) {
+                    continue;
+                }
                 int score = scoreMove(potential, land);
                 ScoredMove sMove = new ScoredMove(potential, score);
                 potentialMoves.add(sMove);
