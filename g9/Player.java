@@ -16,11 +16,11 @@ public class Player implements pentos.sim.Player {
     private int BUILD_ROAD_PENALTY = 50; // penalty for each additional road cell built
     private int BUILD_PARK_PENALTY = 4; // penalty for each additional water/park built
     private int ROAD_ADJ_PENALTY = 5; // penalty for each adjacent road cell
-    private int MIN_POTENTIAL_MOVES = 4; // min # of potential moves in vector before considering looking on the next row
+    private int MIN_POTENTIAL_MOVES = 20; // min # of potential moves in vector before considering looking on the next row
     private int BLOCK_SIZE = 7;
     private Set<Cell> road_cells;
     private Random gen = new Random();
-    
+    private int resHighestI = 0;
 
     /* (Move, score) tuple
      */
@@ -361,8 +361,6 @@ public class Player implements pentos.sim.Player {
         return null;
     }
         
-    /* TODO: fill out
-     */
     private Move buildParksPonds(Move move, Land land) {
         // Create a set that holds the cells that the building will occupy
         Set<Cell> shiftedCells = new HashSet<Cell>();
@@ -489,7 +487,7 @@ public class Player implements pentos.sim.Player {
     /* TODO: how many cells get cut off from network?
      */
     
-    /* TODO: score differently for factories vs residences
+    /* Scores moves
      */
     private int scoreMove(Move move, Land land) {
         int score = 0;
@@ -572,21 +570,22 @@ public class Player implements pentos.sim.Player {
     public Move play(Building request, Land land) {
         System.out.println("Request type: " + request.type + " " + request.toString());
         Vector<ScoredMove> potentialMoves = new Vector<ScoredMove>();
+        Move nextMove = null;
         
         if (request.type == Building.Type.RESIDENCE) {
             for (int i = 0; i < land.side; i++) {
                 for (int j = 0; j < land.side; j++) {
                     evaluateMovesAt(i, j, request, land, potentialMoves);  
                 }
-                System.out.println("Potential moves: " + potentialMoves.size());
-                if (potentialMoves.size() >= MIN_POTENTIAL_MOVES) {
+
+                if (i >= resHighestI && potentialMoves.size() >= MIN_POTENTIAL_MOVES) {
                     System.out.println("Sufficient moves found at i = " + i);
                     break; // searched thru constrained space and found enough moves
                 }
             }
 
         }
-        else {
+        else { // FACTORIES
             for (int i = land.side-1; i >= 0; i--) {
                 for (int j = land.side-1; j >= 0; j--) {
                     evaluateMovesAt(i, j, request, land, potentialMoves);  
@@ -606,12 +605,12 @@ public class Player implements pentos.sim.Player {
                     for (int ri = 0 ; ri < request.rotations().length ; ri++) {
                         Move chosen = getMoveIfValid(request, land, i, j, ri);
                         if (chosen != null) {
-                            return chosen;
+                            nextMove = chosen;
                         }
                     }
                 }
             }
-            return new Move(false); // default player failed to find a spot
+            nextMove = new Move(false); // default player failed to find a spot
         } else {
             // get the move with highest score from Vector potentialMoves
             Collections.sort(potentialMoves);
@@ -621,9 +620,15 @@ public class Player implements pentos.sim.Player {
             Set<Cell> absBuildingCells = getAbsCells(b, bestMove.location);
             road_cells.addAll(bestMove.road);
 
-            return bestMove;
+            nextMove = bestMove;
         }
 
+        // if residence, update highest i that residences have reached
+        if (nextMove.accept && request.type == Building.Type.RESIDENCE) {
+            int moveI = nextMove.location.i;
+            resHighestI = Math.max(resHighestI, moveI);
+        }
+        return nextMove;
     } // end play()
     
     private boolean isPerimeter(Land land, Cell cell) {
@@ -641,6 +646,83 @@ public class Player implements pentos.sim.Player {
         return false;
     }
 
+    /* Searches for a cell of specified type that is up to specified distance 
+       away from building. Returns set of cells that satisfies this, or an empty 
+       set if none found
+    */
+    private Set<Cell> connectTo(Building b, Cell buildingPos, Land land,
+                                Set<Cell> markedForConstruction, Cell.Type type, int maxDistance) {
+        // only works for parks and fields
+        if (type != Cell.Type.WATER && type != Cell.Type.PARK) {
+            return new HashSet<Cell>();
+        }
+ 
+        Set<Cell> absBuildingCells = getAbsCells(b, buildingPos);
+        Queue<Cell> queue = new LinkedList<Cell>();
+         
+        for (Cell c : absBuildingCells) {
+            Cell[] neighbors = c.neighbors();
+            for (Cell n : neighbors) {
+                if (land.unoccupied(n) && !markedForConstruction.contains(n)) {
+                    queue.add(n);
+                }
+            }
+        }
+ 
+        int distance = maxDistance;
+        int currIterSize = queue.size(); // keep track of how many cells in current search depth
+        Set<Cell> connectingCells = new HashSet<Cell>();
+        Set<Cell> visited = new HashSet<Cell>();
+ 
+        while (queue.size() > 0) {
+            if (currIterSize == 0) {
+                // if done with current search depth, get size of next search depth and increase
+                // search depth counter
+                currIterSize = queue.size();
+                distance--;
+                if (distance <= 0) {
+                    break;
+                }
+            }
+ 
+            Cell curr = queue.remove();
+            visited.add(curr);
+            Cell[] neighbors = curr.neighbors();
+            Cell found = null;
+            for (Cell c : neighbors) {
+                if (type == Cell.Type.WATER && land.isPond(c)) {
+                    System.out.println("FOUND nearby pond");
+                    found = curr;
+                    break;
+                }
+ 
+                if (type == Cell.Type.PARK && land.isField(c)) {
+                    System.out.println("FOUND nearby field");
+                    found = curr;
+                    break;
+                }
+ 
+                if ( land.unoccupied(c) && !absBuildingCells.contains(c)
+                     && !markedForConstruction.contains(c) && !visited.contains(c) ) {
+                    Cell next = new Cell(c.i, c.j, curr);
+                    queue.add(next);
+                }
+            }
+ 
+            if (found != null) {
+                while (found != null) {
+                    connectingCells.add(found);
+                    found = found.previous;
+                }
+                break;
+            }
+            currIterSize--;
+        } // end while queue.size() > 0
+        if (connectingCells.size() > 0) {
+            System.out.println("connecting cells size: " + connectingCells.size());
+        }
+        return connectingCells;
+    } // end connectTo()
 
     private Set<Cell> findShortestRoad(Set<Cell> b, Land land) {
         Set<Cell> output = new HashSet<Cell>();
