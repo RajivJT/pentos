@@ -9,10 +9,10 @@ import java.util.*;
 
 public class Player implements pentos.sim.Player {
 
-    private int BASE_BUILDING_SCORE = 12; // base score for a single cell of a building
-    private int PACKING_FACTOR_MULTIPLE = 16; // score multiple for each adjacent cell
-    private int POND_BONUS_SCORE = 22; // score to add for a pond
-    private int FIELD_BONUS_SCORE = 22; // score to add for a field
+    private int BASE_BUILDING_SCORE = 10; // base score for a single cell of a building
+    private int PACKING_FACTOR_MULTIPLE = 10; // score multiple for each adjacent cell
+    private int POND_BONUS_SCORE = 20; // score to add for a pond
+    private int FIELD_BONUS_SCORE = 20; // score to add for a field
     private int BUILD_ROAD_PENALTY = 5; // penalty for each additional road cell built
     private int BUILD_PARK_PENALTY = 5; // penalty for each additional water/park built
     private int ROAD_ADJ_PENALTY = 2; // penalty for each adjacent road cell
