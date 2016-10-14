@@ -18,8 +18,6 @@ public class Player implements pentos.sim.Player {
     private int ROAD_ADJ_PENALTY = 2; // penalty for each adjacent road cell
     private int PERIMETER_PENALTY = 5; // penalty for each cell on the perimeter
     private int MIN_POTENTIAL_MOVES = 20; // min # of potential moves in vector before considering looking on the next row
-    private int BLOCK_SIZE = 7;
-
     // used for evaluating vector of parks/ponds to be built
     private int PARKPOND_PACKING_BONUS = 10; // bonus for each adjacent empty cell
 
@@ -108,38 +106,38 @@ public class Player implements pentos.sim.Player {
         return null;
     }
 
-
     /* Returns number of adjacent empty cells (how well packed the building is)
-       RESIDENCES: takes into account road, water, park cells about to be built
+       RESIDENCES: adjacent roads count as being "empty"
+       FACTORIES: adjacent roads count towards packing
      */
     private int getPackingFactor(Building b, Cell position, Land land,
                                 Set<Cell> markedForConstruction) {
         Set<Cell> emptyNeighbors = new HashSet<Cell>();
         Set<Cell> absBuildingCells = getAbsCells(b, position);
+        markedForConstruction.addAll(absBuildingCells);
+        Set<Cell> neighbors = new HashSet<Cell>();
+        for (Cell c : absBuildingCells) {
+            Cell[] cNeighbors = c.neighbors();
+            for (Cell n : cNeighbors) {
+                neighbors.add(n);
+            }
+        }
 
-        for (Cell abs : absBuildingCells) {
-            Cell[] absNeighbors = abs.neighbors();
-            for (Cell n : absNeighbors) {
-                if (land.unoccupied(n)) {
-                    // check if that cell on the land WOULD be occupied by this building
-                    boolean occupied = false;
-                    for (Cell d : absBuildingCells) {
-                        if (d.equals(abs))
-                            continue; // neighbor is next to the cell we used to get this neighbor, ignore!
-                        if (n.equals(d)) {
-                            occupied = true;
-                        }
-                    }
-                    
-                    if (occupied == false) {
-                        // last check: if n is NOT one of the road/water/park to be constructed
-                        if (!markedForConstruction.contains(n)) {
-                            emptyNeighbors.add(n);
-                        }
-                    }
-                } // end if land.unoccupied(n)
-            } // end for(Cell n : absNeighbors)
-        } // end for(Cell abs : absBuildingCells)
+        for (Cell c : neighbors) {
+            if (markedForConstruction.contains(c)) {
+                continue;
+            }
+            if (b.type == Building.Type.RESIDENCE) {
+                if (land.getCellType(c.i, c.j) == Cell.Type.ROAD || land.unoccupied(c)) {
+                    emptyNeighbors.add(c);
+                }
+            }
+            else {
+                if (land.unoccupied(c)) {
+                    emptyNeighbors.add(c);
+                }
+            }
+        }
         return emptyNeighbors.size() * PACKING_FACTOR_MULTIPLE;
     }
 
@@ -246,133 +244,9 @@ public class Player implements pentos.sim.Player {
         }
         return adjacent.size();
     }
-    
-    /*
-      Checks if cell is occupied currently or will be by the building about to be placed
-      c is an ABSOLUTE POSITION on the land
-     */
-    public boolean willBeUnoccupied(Cell c, Building b, Cell buildingPos, Land land) {
-        if (!land.unoccupied(c)) {
-            return false; // it IS occupied
-        }
-
-        for (Cell buildingCell : b) {
-            Cell buildingCellAbs = new Cell(buildingCell.i + buildingPos.i, buildingCell.j + buildingPos.j);
-            if (buildingCellAbs.equals(c)) {
-                return false; // it WILL BE occupied by the building about to be placed
-            }
-        }
-
-        // This is a cell that will eventually be occupied by a road
-        if ((c.i + 1) % (BLOCK_SIZE + 1) == 0)
-            return false;
-
-        return true; // will be unoccupied
-    }
 
     public Double getDist(Cell a, Cell b) {
         return Math.hypot(a.i - b.i, a.j - b.j);
-    }
-
-    /*
-      Adds either a park or a field to a Move - we use the word "development" to refer to either
-      of these entities.
-     */
-    public Move buildWithDevelopment(Cell buildingPos, Building request, int rotation,
-                                     Set<Cell> roadCells, Land land) {
-        // Create a set that holds the cells that the building will occupy
-        Set<Cell> shiftedCells = new HashSet<Cell>();
-        Building b = request.rotations()[rotation];
-        for (Cell cell : b) {
-            shiftedCells.add(new Cell(cell.i + buildingPos.i, cell.j + buildingPos.j));
-        }
-
-        // Create a set of cells for the new development
-        Set<Cell> developmentCells = new HashSet<Cell>();
-
-        // TODO: Right now we're just selecting the last valid candidate development and building
-        // it. We probably want to store each valid candidate in a list and score them so that
-        // we can choose the best candidate instead.
-        for (Cell cell : shiftedCells) {
-            Cell[] adj = cell.neighbors();
-            // Loop through all cells neighboring the building
-            for (Cell neighbor : adj) {
-                int i = neighbor.i;
-                int j = neighbor.j;
-
-                // Attempt to construct a horizontal development
-                Set<Cell> candidateDevelopment = new HashSet<Cell>();
-                boolean candidateIsValid = true;
-
-                if (j+3 >= land.side)
-                    candidateIsValid = false;
-
-                for (int dj = 0; candidateIsValid && dj < 4; dj++) {
-                    // Starting from a cell that neighbors a building, build to the right
-                    Cell candidateCell = new Cell(i+dj, j);
-                    // If the current cell is being used for something else, this candidate
-                    // is invalid
-                    if (!willBeUnoccupied(candidateCell, b, buildingPos, land) ||
-                        roadCells.contains(candidateCell)) {
-                        candidateIsValid = false;
-                        break;
-                    }
-                    candidateDevelopment.add(candidateCell);
-                }
-
-                // If we couldn't construct a development by building rightward, build leftward
-                // instead
-                if (!candidateIsValid) {
-                    candidateIsValid = true;
-                    candidateDevelopment = new HashSet<Cell>();
-
-                    if (j-3 < 0)
-                        candidateIsValid = false;
-
-                    for (int dj = 0; candidateIsValid && dj < 4; dj++) {
-                        // Build to the left
-                        Cell candidateCell = new Cell(i, j-dj);
-
-                        // If the current cell is being used for something else, this candidate
-                        // is invalid
-                        if (!willBeUnoccupied(candidateCell, b, buildingPos, land) ||
-                            roadCells.contains(candidateCell)) {
-                            candidateIsValid = false;
-                            break;
-                        }
-                        candidateDevelopment.add(candidateCell);
-                    }
-                }
-
-                // If we found a valid candidate this round, mark it as the development to be
-                // built
-                if (candidateIsValid) {
-                    developmentCells = candidateDevelopment;
-                }
-            }
-        }
-
-        // If the building doesn't have a pond or field, choose one randomly and build it
-        return new Move(true, request, buildingPos, rotation, roadCells,
-                        new HashSet<Cell>(), developmentCells);
-        /*if (!hasPond && !hasField) {
-            int choice = gen.nextInt(2);
-            if (choice == 0) {
-                return new Move(true, request, buildingPos, rotation, roadCells,
-                                new HashSet<Cell>(), developmentCells);
-            } else {
-                return new Move(true, request, buildingPos, rotation, roadCells, developmentCells,
-                                new HashSet<Cell>());
-            }
-        } else if (hasPond) {
-            // Build a field if there is a pond
-            return new Move(true, request, buildingPos, rotation, roadCells, new HashSet<Cell>(),
-                            developmentCells);
-        } else {
-            // Build a pond if there is a field
-            return new Move(true, request, buildingPos, rotation, roadCells, developmentCells,
-                            new HashSet<Cell>());
-        }*/
     }
 
     /* Checks if building to be placed will be connected to a road
@@ -390,9 +264,9 @@ public class Player implements pentos.sim.Player {
                     return true;
                 if (roadConstruction.contains(n))
                     return true;
-                if (isPerimeter(land, n))
-                    return true;
             }
+            if (onPerimeter(land, abs))
+                return true;
         }
         return false;
     }
@@ -404,12 +278,6 @@ public class Player implements pentos.sim.Player {
             absBuildingCells.add(abs);
         }
         return absBuildingCells;
-    }
-    
-    /* TODO
-     */
-    private Set<Cell> buildRoad(Set<Cell> building, Land land) {
-        return null;
     }
 
     /* Takes a candidate park or pond and scores it considering the move that
@@ -530,7 +398,7 @@ public class Player implements pentos.sim.Player {
 
     /* build parks and ponds to a move that currently has none to be built
      */
-    private Move buildParksPonds2(Move move, Land land) {
+    private Move buildParksPonds(Move move, Land land) {
         Building request = move.request;
         Building b = request.rotations()[move.rotation];
         Cell buildingPos = move.location;
@@ -623,131 +491,7 @@ public class Player implements pentos.sim.Player {
 
         // update move with water cells
         move.water = water;
-        
         return move;
-    }
-    
-    private Move buildParksPonds(Move move, Land land) {
-        // Create a set that holds the cells that the building will occupy
-        Set<Cell> shiftedCells = new HashSet<Cell>();
-        Building b = move.request.rotations()[move.rotation];
-        for (Cell cell : b) {
-            shiftedCells.add(new Cell(cell.i + move.location.i, cell.j + move.location.j));
-        }
-
-        // Create a set of cells for the new development
-        Set<Cell> developmentCells = new HashSet<Cell>();
-
-        // TODO: Right now we're just selecting the last valid candidate development and building
-        // it. We probably want to store each valid candidate in a list and score them so that
-        // we can choose the best candidate instead.
-        for (Cell cell : shiftedCells) {
-            Cell[] adj = cell.neighbors();
-            // Loop through all cells neighboring the building
-            for (Cell neighbor : adj) {
-                int i = neighbor.i;
-                int j = neighbor.j;
-
-                if (i != move.location.i)
-                    continue;
-
-                // Attempt to construct a horizontal development
-                Set<Cell> candidateDevelopment = new HashSet<Cell>();
-                boolean candidateIsValid = true;
-
-                if (j+3 >= land.side)
-                    candidateIsValid = false;
-
-                for (int dj = 0; candidateIsValid && dj < 4; dj++) {
-                    // Starting from a cell that neighbors a building, build to the right
-                    Cell candidateCell = new Cell(i+dj, j);
-                    // If the current cell is being used for something else, this candidate
-                    // is invalid
-                    if (!willBeUnoccupied(candidateCell, b, move.location, land) ||
-                        move.road.contains(candidateCell)) {
-                        candidateIsValid = false;
-                        break;
-                    }
-                    candidateDevelopment.add(candidateCell);
-                }
-
-                // If we couldn't construct a development by building rightward, build leftward
-                // instead
-                if (!candidateIsValid) {
-                    candidateIsValid = true;
-                    candidateDevelopment = new HashSet<Cell>();
-
-                    if (j-3 < 0)
-                        candidateIsValid = false;
-
-                    for (int dj = 0; candidateIsValid && dj < 4; dj++) {
-                        // Build to the left
-                        Cell candidateCell = new Cell(i, j-dj);
-
-                        // If the current cell is being used for something else, this candidate
-                        // is invalid
-                        if (!willBeUnoccupied(candidateCell, b, move.location, land) ||
-                            move.road.contains(candidateCell)) {
-                            candidateIsValid = false;
-                            break;
-                        }
-                        candidateDevelopment.add(candidateCell);
-                    }
-                }
-
-                // If we couldn't construct a development by building rightward, build leftward
-                // instead
-                if (!candidateIsValid) {
-                    candidateIsValid = true;
-                    candidateDevelopment = new HashSet<Cell>();
-
-                    if (j-3 < 0)
-                        candidateIsValid = false;
-
-                    for (int dj = 0; candidateIsValid && dj < 4; dj++) {
-                        // Build to the left
-                        Cell candidateCell = new Cell(i, j+dj);
-
-                        // If the current cell is being used for something else, this candidate
-                        // is invalid
-                        if (!willBeUnoccupied(candidateCell, b, move.location, land) ||
-                            move.road.contains(candidateCell)) {
-                            candidateIsValid = false;
-                            break;
-                        }
-                        candidateDevelopment.add(candidateCell);
-                    }
-                }
-
-                // If we found a valid candidate this round, mark it as the development to be
-                // built
-                if (candidateIsValid) {
-                    developmentCells = candidateDevelopment;
-                }
-            }
-        }
-
-        boolean hasPond = adjacentPond(b, move.location, land, new HashSet<Cell>());
-        boolean hasField = adjacentField(b, move.location, land, new HashSet<Cell>());
-
-        if (!hasPond && !hasField) {
-            int choice = gen.nextInt(2);
-            if (choice == 0) {
-                return new Move(true, move.request, move.location, move.rotation, move.road,
-                                new HashSet<Cell>(), developmentCells);
-            } else {
-                return new Move(true, move.request, move.location, move.rotation, move.road, developmentCells,
-                                new HashSet<Cell>());
-            }
-        } else if (hasPond) {
-            // Build a field if there is a pond
-            return new Move(true, move.request, move.location, move.rotation, move.road, new HashSet<Cell>(),
-                            developmentCells);
-        } else {
-            // Build a pond if there is a field
-            return new Move(true, move.request, move.location, move.rotation, move.road, developmentCells,
-                            new HashSet<Cell>());
-        }
     }
     
     /* Scores moves
@@ -767,7 +511,13 @@ public class Player implements pentos.sim.Player {
         markedForConstruction.addAll(park);
         
         score = b.size() * BASE_BUILDING_SCORE;
-        score -= getPackingFactor(b, buildingPos, land, markedForConstruction);
+        if (request.type == Building.Type.RESIDENCE) {
+            score -= getPackingFactor(b, buildingPos, land, markedForConstruction);
+        }
+        else {
+            markedForConstruction.addAll(road);
+            score -= getPackingFactor(b, buildingPos, land, markedForConstruction);            
+        }
 
         // residences: bonus to parks/ponds, subject to penalty per additional cell built
         if (request.type == Building.Type.RESIDENCE) {
@@ -799,8 +549,8 @@ public class Player implements pentos.sim.Player {
 
         // basic final check to heavily penalize cutting off large amounts of free cells
         int numCellsCutOff = countCellsCutOff(move, land);
-        if (numCellsCutOff > 30) {
-            score -= Math.pow(2, 30);
+        if (numCellsCutOff > 20) {
+            score -= Math.pow(2, 20);
         }
         else {
             score -= Math.pow(2, numCellsCutOff);
@@ -837,7 +587,7 @@ public class Player implements pentos.sim.Player {
                 potentialMoves.add(sMove);
 
                 if (request.type == Building.Type.RESIDENCE) {
-                    Move potentialPlus = buildParksPonds2(potential, land);
+                    Move potentialPlus = buildParksPonds(potential, land);
                     int scorePlus = scoreMove(potentialPlus, land);
                     ScoredMove sMovePlus = new ScoredMove(potentialPlus, scorePlus);
                     potentialMoves.add(sMovePlus);
@@ -851,7 +601,7 @@ public class Player implements pentos.sim.Player {
        Revert to default player if no options found
      */
     public Move play(Building request, Land land) {
-        System.out.println("Request type: " + request.type + " " + request.toString());
+        //System.out.println("Request type: " + request.type + " " + request.toString());
         Vector<ScoredMove> potentialMoves = new Vector<ScoredMove>();
         Move nextMove = null;
         
@@ -865,7 +615,7 @@ public class Player implements pentos.sim.Player {
                     break; // searched thru constrained space and found enough moves
                 }
             }
-
+            
         }
         else { // FACTORIES
             for (int i = land.side-1; i >= 0; i--) {
@@ -894,12 +644,12 @@ public class Player implements pentos.sim.Player {
         } else {
             // get the move with highest score from Vector potentialMoves
             Collections.sort(potentialMoves);
+            //System.out.println("Potential moves: " + potentialMoves.size());
             ScoredMove bestScoredMove = potentialMoves.lastElement();
             Move bestMove = bestScoredMove.move;
             Building b = bestMove.request.rotations()[bestMove.rotation];
             Set<Cell> absBuildingCells = getAbsCells(b, bestMove.location);
             road_cells.addAll(bestMove.road);
-
             nextMove = bestMove;
         }
 
@@ -907,16 +657,14 @@ public class Player implements pentos.sim.Player {
         if (nextMove.accept && request.type == Building.Type.RESIDENCE) {
             int moveI = nextMove.location.i;
             resHighestI = Math.max(resHighestI, moveI);
+            resHighestI = Math.min(resHighestI, land.side-1);
         }
 
-        if (nextMove.accept) {
-            int cellsCutOff = countCellsCutOff(nextMove, land);
-            System.out.println("Cutting off cells: " + cellsCutOff);
-        }
         return nextMove;
     } // end play()
 
-
+    /* For a given set of cells, counts how many are on the perimeter
+     */
     private int countPerimeterCells(Land land, Set<Cell> cells) {
         int count = 0;
         for (Cell c : cells) {
@@ -934,22 +682,10 @@ public class Player implements pentos.sim.Player {
         int j = cell.j;
         return (i <= 0 || j <= 0 || i >= land.side-1 || j >= land.side-1);
     }
-    
-    private boolean isPerimeter(Land land, Cell cell) {
-        int i = cell.i;
-        int j = cell.j;
 
-        for (int di = -1; di <= 1; di++) {
-            for (int dj = -1; dj <= 1; dj++) {
-                if (di != 0 && dj != 0 && !land.unoccupied(i+di, j+dj)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
+    /* Returns if a group of cells has a road connection (either existing road
+       or one marked for construction)
+     */
     private boolean isConnectedToRoad(Set<Cell> group, Land land,
                                       Set<Cell> roadMarkedForConstruction) {
         Set<Cell> neighbors = new HashSet<Cell>();
@@ -987,6 +723,7 @@ public class Player implements pentos.sim.Player {
         while (!stack.empty()) {
             Cell curr = stack.pop();
             emptyCellGroup.add(curr);
+            visited.add(curr);
             Cell[] neighbors = curr.neighbors();
             for (Cell n : neighbors) {
                 if (visited.contains(n)) {
@@ -994,7 +731,6 @@ public class Player implements pentos.sim.Player {
                 }
 
                 if (land.unoccupied(n) && !markedForConstruction.contains(n)) {
-                    visited.add(n);
                     stack.push(n);
                 }
             }
@@ -1002,7 +738,8 @@ public class Player implements pentos.sim.Player {
         return emptyCellGroup;
     }
     
-    /* TODO: how many cells get cut off from network?
+    /* Counts how many cells are cut off from road connection as a result of
+       given move
      */
     private int countCellsCutOff(Move move, Land land) {
         Building request = move.request;
