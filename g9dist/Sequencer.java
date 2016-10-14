@@ -51,13 +51,16 @@ public class Sequencer implements pentos.sim.Sequencer {
 
     private Building randomFactory() { // random rectangle
 	Set<Cell> factory = new HashSet<Cell>();
-	for (int i=1; i<=factnum; i++) {
-	    for (int j=1; j<=factnum; j++) {
-		factory.add(new Cell(i,j));
-	    }
-	}
+	//for (int i=1; i<=factnum; i++) {
+	 //   for (int j=1; j<=factnum; j++) {
+	//	factory.add(new Cell(i,j));
+	 //   }
+	//}
+
+    factory.add(new Cell(0,0)); //just add a 1x1 factory
+
 	factnum++;
-	if (factnum>5) {
+	if (factnum>1) {
 		factnum=1;
 	}
 	return new Building(factory.toArray(new Cell[factory.size()]), Building.Type.FACTORY);
@@ -69,10 +72,11 @@ public class Sequencer implements pentos.sim.Sequencer {
     	if (count>8) {
         	count=0;
         }
-        for(int[] shape : tetris[count]) {
-            res.add(new Cell(shape[0], shape[1]));
+        for(int[] shape : tetris[6]) {
+          res.add(new Cell(shape[0], shape[1]));
         }
         
+
         return new Building(res.toArray(new Cell[res.size()]), Building.Type.RESIDENCE);
     }    
 }
