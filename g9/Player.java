@@ -18,6 +18,8 @@ public class Player implements pentos.sim.Player {
     private int ROAD_ADJ_PENALTY = 2; // penalty for each adjacent road cell
     private int PERIMETER_PENALTY = 5; // penalty for each cell on the perimeter
     private int MIN_POTENTIAL_MOVES = 20; // min # of potential moves in vector before considering looking on the next row
+    private int ROAD_ADJ_POND_PENALTY = 5; // penalty for each built road cell next to park/pond
+    
     // used for evaluating vector of parks/ponds to be built
     private int PARKPOND_PACKING_BONUS = 10; // bonus for each adjacent empty cell
 
@@ -296,7 +298,6 @@ public class Player implements pentos.sim.Player {
         Set<Cell> park = move.park;
         Set<Cell> markedForConstruction = new HashSet<Cell>();
         Set<Cell> cellsToScore = new HashSet<Cell>();
-        markedForConstruction.addAll(road);
         markedForConstruction.addAll(absBuildingCells);
         if (type == Cell.Type.PARK) {
             markedForConstruction.addAll(water);
@@ -308,16 +309,21 @@ public class Player implements pentos.sim.Player {
         }
 
         Set<Cell> emptyNeighbors = new HashSet<Cell>();
+        Set<Cell> roadNeighbors = new HashSet<Cell>();
         for (Cell c : cellsToScore) {
             Cell[] cNeighbors = c.neighbors();
             for (Cell n : cNeighbors) {
                 if (land.unoccupied(n) && !markedForConstruction.contains(n)) {
                     emptyNeighbors.add(n);
                 }
+                if (land.getCellType(n) == Cell.Type.ROAD || road.contains(n)) {
+                    roadNeighbors.add(n);
+                }
             }
         }
 
-        int score = emptyNeighbors.size() * PARKPOND_PACKING_BONUS;        
+        int score = emptyNeighbors.size() * PARKPOND_PACKING_BONUS;
+        score -= roadNeighbors.size() * ROAD_ADJ_POND_PENALTY;
         return score;
     }
 
@@ -547,6 +553,10 @@ public class Player implements pentos.sim.Player {
         cellsOnPerimeter += countPerimeterCells(land, park);
         score -= cellsOnPerimeter * PERIMETER_PENALTY;
 
+        // check how many built road cells are next to park/pond
+        int roadCellsAdjParkPond = countRoadAdjParkPond(road, land, water, park);
+        score -= roadCellsAdjParkPond * ROAD_ADJ_POND_PENALTY;
+        
         // basic final check to heavily penalize cutting off large amounts of free cells
         int numCellsCutOff = countCellsCutOff(move, land);
         if (numCellsCutOff > 20) {
@@ -793,6 +803,28 @@ public class Player implements pentos.sim.Player {
         }
         
         return unconnectedCount;
+    }
+
+    int countRoadAdjParkPond(Set<Cell> road, Land land, Set<Cell> water, Set<Cell> park) {
+        Set<Cell> roadCellsAdj = new HashSet<Cell>();
+        Set<Cell> neighbors = new HashSet<Cell>();
+
+        for (Cell r : road) {
+            Cell[] rNeighbors = r.neighbors();
+            for (Cell n : rNeighbors) {
+                neighbors.add(n);
+            }
+        }
+
+        for (Cell n : neighbors) {
+            if (land.getCellType(n) == Cell.Type.WATER ||
+                land.getCellType(n) == Cell.Type.PARK ||
+                water.contains(n) || park.contains(n)) {
+                roadCellsAdj.add(n);
+            }
+        }
+
+        return roadCellsAdj.size();
     }
     
     /* Searches for a cell of specified type that is up to specified distance 
