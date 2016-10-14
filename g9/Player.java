@@ -17,12 +17,15 @@ public class Player implements pentos.sim.Player {
     private int BUILD_PARK_PENALTY = 5; // penalty for each additional water/park built
     private int ROAD_ADJ_PENALTY = 2; // penalty for each adjacent road cell
     private int PERIMETER_PENALTY = 5; // penalty for each cell on the perimeter
-    private int CUTOFF_PENALTY = 12; // penalty for each cell cut off from network
     private int MIN_POTENTIAL_MOVES = 20; // min # of potential moves in vector before considering looking on the next row
     private int BLOCK_SIZE = 7;
 
     // used for evaluating vector of parks/ponds to be built
     private int PARKPOND_PACKING_BONUS = 10; // bonus for each adjacent empty cell
+
+    // used for scoring factories only
+    private int POND_PENALTY = 5; // penalty for adjacent ponds/parks
+    private int FACTORY_BONUS = 5; // bonus for adjacent factory cells
     
     private Set<Cell> road_cells;
     private Random gen = new Random();
@@ -221,6 +224,28 @@ public class Player implements pentos.sim.Player {
         return adjRoadCells.size();
     }
 
+    /* Counts how many adjacent cells of a type (for factory use only - 
+       so not counting cells marked for construction)
+     */
+    public int numAdjType(Building b, Cell buildingPos, Land land, Cell.Type type) {
+        Set<Cell> adjacent = new HashSet<Cell>();
+        Set<Cell> absBuildingCells = getAbsCells(b, buildingPos);
+        Set<Cell> neighbors = new HashSet<Cell>();
+
+        for (Cell c : absBuildingCells) {
+            Cell[] cNeighbors = c.neighbors();
+            for (Cell n : cNeighbors) {
+                neighbors.add(n);
+            }
+        }
+
+        for (Cell c : neighbors) {
+            if (land.getCellType(c.i, c.j) == type) {
+                adjacent.add(c);
+            }
+        }
+        return adjacent.size();
+    }
     
     /*
       Checks if cell is occupied currently or will be by the building about to be placed
@@ -724,8 +749,6 @@ public class Player implements pentos.sim.Player {
                             new HashSet<Cell>());
         }
     }
-
-
     
     /* Scores moves
      */
@@ -746,17 +769,26 @@ public class Player implements pentos.sim.Player {
         score = b.size() * BASE_BUILDING_SCORE;
         score -= getPackingFactor(b, buildingPos, land, markedForConstruction);
 
-        if (adjacentPond(b, buildingPos, land, water)) {
-            score += POND_BONUS_SCORE;
+        // residences: bonus to parks/ponds, subject to penalty per additional cell built
+        if (request.type == Building.Type.RESIDENCE) {
+            if (adjacentPond(b, buildingPos, land, water)) {
+                score += POND_BONUS_SCORE;
+            }
+
+            if (adjacentField(b, buildingPos, land, park)) {
+                score += FIELD_BONUS_SCORE;
+            }
+            score -= (water.size() + park.size()) * BUILD_PARK_PENALTY;
         }
 
-        if (adjacentField(b, buildingPos, land, park)) {
-            score += FIELD_BONUS_SCORE;
+        // factories: penalty for adjacency to parks/ponds, bonus for factory adjacency
+        if (request.type == Building.Type.FACTORY) {
+            score -= numAdjType(b, buildingPos, land, Cell.Type.WATER) * POND_PENALTY;
+            score -= numAdjType(b, buildingPos, land, Cell.Type.PARK) * POND_PENALTY;
+            score += numAdjType(b, buildingPos, land, Cell.Type.FACTORY) * FACTORY_BONUS;
         }
-
-        score -= (water.size() + park.size()) * BUILD_PARK_PENALTY;
+        
         score -= road.size() * BUILD_ROAD_PENALTY;
-
         score -= numAdjRoad(b, buildingPos, land, road) * ROAD_ADJ_PENALTY;
 
         int cellsOnPerimeter = countPerimeterCells(land, absBuildingCells);
@@ -765,9 +797,15 @@ public class Player implements pentos.sim.Player {
         cellsOnPerimeter += countPerimeterCells(land, park);
         score -= cellsOnPerimeter * PERIMETER_PENALTY;
 
-        //TODO: get cutting off cells working
-        //int numCellsCutOff = countCellsCutOff(move, land);
-        //score -= numCellsCutOff * CUTOFF_PENALTY;
+        // basic final check to heavily penalize cutting off large amounts of free cells
+        int numCellsCutOff = countCellsCutOff(move, land);
+        if (numCellsCutOff > 30) {
+            score -= Math.pow(2, 30);
+        }
+        else {
+            score -= Math.pow(2, numCellsCutOff);
+        }
+
         return score;
     }
     
@@ -872,8 +910,8 @@ public class Player implements pentos.sim.Player {
         }
 
         if (nextMove.accept) {
-            //int cellsCutOff = countCellsCutOff(nextMove, land);
-            //System.out.println("Cutting off cells: " + cellsCutOff);
+            int cellsCutOff = countCellsCutOff(nextMove, land);
+            System.out.println("Cutting off cells: " + cellsCutOff);
         }
         return nextMove;
     } // end play()
@@ -920,6 +958,9 @@ public class Player implements pentos.sim.Player {
             for (Cell n : cNeighbors) {
                 neighbors.add(n);
             }
+            if (onPerimeter(land, c)) {
+                return true;
+            }
         }
 
         for (Cell c : neighbors) {
@@ -945,7 +986,7 @@ public class Player implements pentos.sim.Player {
 
         while (!stack.empty()) {
             Cell curr = stack.pop();
-            emptyCellGroup.add(c);
+            emptyCellGroup.add(curr);
             Cell[] neighbors = curr.neighbors();
             for (Cell n : neighbors) {
                 if (visited.contains(n)) {
@@ -958,7 +999,6 @@ public class Player implements pentos.sim.Player {
                 }
             }
         } // end while !stack.empty()
-
         return emptyCellGroup;
     }
     
@@ -982,7 +1022,9 @@ public class Player implements pentos.sim.Player {
         for (Cell c : markedForConstruction) {
             Cell[] cNeighbors = c.neighbors();
             for (Cell n : cNeighbors) {
-                neighbors.add(n);
+                if (!markedForConstruction.contains(n)) {
+                    neighbors.add(n);
+                }
             }
         }
 
